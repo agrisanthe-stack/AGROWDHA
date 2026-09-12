@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# Block non-public paths
+Disallow: /admin
+Disallow: /api/
+Disallow: /checkout
+Disallow: /orders
+Disallow: /profile
+Disallow: /cart
+
+Sitemap: https://farmersanthe.com/sitemap.xml

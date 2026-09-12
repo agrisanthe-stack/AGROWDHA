@@ -1,0 +1,371 @@
+version: '3.8'
+
+services:
+  # ── Backend (Express API) ─────────────────────────────────────────────────
+  backend:
+    image: fsbackend:latest
+    container_name: santhe-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # AI service URLs (self-hosted)
+      #- TTS_PROVIDER=piper
+      #- PIPER_TTS_URL=http://santhe-piper-tts:5001
+      - NLLB_URL=http://santhe-nllb:5002
+      - OLLAMA_URL=http://santhe-ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - COGVIDEOX_URL=http://santhe-cogvideox:5003
+      - COGVIDEOX_ENABLED=${COGVIDEOX_ENABLED:-true}
+      - COGVIDEOX_MAX_AI_SLIDES=${COGVIDEOX_MAX_AI_SLIDES:-4}
+      - COGVIDEOX_STEPS=${COGVIDEOX_STEPS:-15}
+      - COGVIDEOX_NUM_FRAMES=${COGVIDEOX_NUM_FRAMES:-25}
+      - COGVIDEOX_GUIDANCE=${COGVIDEOX_GUIDANCE:-6}
+      - COGVIDEOX_FPS=${COGVIDEOX_FPS:-16}
+      #- OLLAMA_MODEL=sike_aditya/AgriLlama:latest
+    volumes:
+      - uploads_data:/app/public/uploads
+      - video_jobs:/shared
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+          #condition: service_healthy
+      - openinary
+          #condition: service_healthy
+      - piper-tts
+        #condition: service_healthy
+      - nllb
+        #condition: service_healthy
+      - ollama
+        #condition: service_healthy
+      - cogvideox
+    networks:
+      - santhe_network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/', (r) => process.exit(r.statusCode < 500 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── Frontend (React + Nginx) ──────────────────────────────────────────────
+  frontend:
+    image: fsfrontend:latest
+    container_name: santhe-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      #- /etc/letsencrypt/live/farmersanthe.com/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      #- /etc/letsencrypt/live/farmersanthe.com/privkey.pem:/etc/nginx/ssl/privkey.pem:ro 
+    depends_on:
+      - backend
+    networks:
+      - santhe_network
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Nginx reverse proxy ───────────────────────────────────────────────────
+  #nginx:
+  #  image: nginx:alpine
+  #  container_name: santhe-nginx-prod
+  #  restart: always
+  #  ports:
+  #    - "80:80"
+  #    - "443:443"
+  #  volumes:
+  #    - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #    - ./docker/nginx/conf.d/santhe.conf:/etc/nginx/conf.d/santhe.conf:ro
+      #- ./docker/ssl:/etc/nginx/ssl:ro
+   # depends_on:
+   #   - backend
+   #   - frontend
+   # networks:
+   #   - santhe_network
+   # healthcheck:
+   #   test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+   #   interval: 30s
+   #   timeout: 10s
+   #   retries: 3
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: santhe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB:       ${POSTGRES_DB:-santhe}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - santhe_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Redis (optional, start with: docker compose --profile full up) ─────────
+  redis:
+    image: redis:7-alpine
+    container_name: santhe-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - santhe_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - full
+
+  # ── Openinary (self-hosted image CDN) ────────────────────────────────────
+  openinary:
+    image: openinary/openinary:v0.1.8
+    container_name: openinary-service
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.openinary
+    #environment:
+     # - MODE=api
+     # - INIT_ADMIN_USERNAME=Santhe
+     # - INIT_ADMIN_PASSWORD=Santhe@123
+     # - INIT_ADMIN_EMAIL=admin@farmersanthe.com
+     # - INIT_ADMIN_API_KEY=${OPENINARY_API_KEY}
+     # - STORAGE_TYPE=local
+    volumes:
+      - openinary-db:/app/data
+      - openinary-cache:/app/apps/api/cache
+      - openinary-public:/app/apps/api/public
+    networks:
+      - santhe_network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode < 400 ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      
+      
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin-ui
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "admin@farmersanthe.com"
+      PGADMIN_DEFAULT_PASSWORD: "Santhe@123"
+    networks:
+      - santhe_network      
+      
+
+  # ── Piper TTS (self-hosted, offline TTS) ─────────────────────────────────
+  # Replaces Microsoft edge-tts. Voice models downloaded on first use to
+  # the piper_models volume from HuggingFace rhasspy/piper-voices.
+  piper-tts:
+    build:
+      context: ./docker/piper-tts
+      dockerfile: Dockerfile
+    container_name: santhe-piper-tts
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - MODELS_DIR=/models
+    volumes:
+      - piper_models:/models
+    networks:
+      - santhe_network
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket, sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(('127.0.0.1', 5001))==0 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── NLLB-200 Translation (self-hosted) ───────────────────────────────────
+  # Translates English narrations to Hindi (and other languages) before TTS.
+  # Uses facebook/nllb-200-distilled-600M (~2.4 GB download on first boot).
+  nllb:
+    build:
+      context: ./docker/nllb
+      dockerfile: Dockerfile
+    container_name: santhe-nllb
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    environment:
+      - NLLB_MODEL=facebook/nllb-200-distilled-600M
+      #- NLLB_MODEL=/models/nllb-600m-local
+      - HF_HOME=/models
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+    volumes:
+      - nllb_models:/models
+    networks:
+      - santhe_network
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket, sys; s=socket.socket(); s.settimeout(2); sys.exit(0 if s.connect_ex(('127.0.0.1', 5002))==0 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+      
+  # ── Ollama (Llama LLM for AI script generation) ───────────────────────────
+  # Generates creative marketing narrations per video slide.
+  # Default model: llama3.2:3b (~2 GB). Override with OLLAMA_MODEL env var.
+  # GPU: uncomment the deploy.resources block below to enable GPU acceleration.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: santhe-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      #- OLLAMA_MODEL=${OLLAMA_MODEL:-sike_aditya/AgriLlama:latest}
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - santhe_network
+    entrypoint: 
+      - "/bin/sh"
+      - "-c"
+      - |
+        ollama serve &
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        echo "Pulling model ${OLLAMA_MODEL}..."
+        ollama pull ${OLLAMA_MODEL}
+        wait
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # Uncomment for NVIDIA GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ── Ollama model initializer (one-shot: pulls model, then exits) ──────────
+  #ollama-init:
+  #  image: ollama/ollama:latest
+  #  container_name: santhe-ollama-init
+  #  restart: "no"
+  #  environment:
+  #    - OLLAMA_HOST=http://ollama:11434
+  #  volumes:
+  #    - ollama_data:/root/.ollama
+  #  networks:
+  #    - santhe_network
+  #  depends_on:
+  #    ollama:
+  #      condition: service_healthy
+  #  entrypoint: ["/bin/sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"]
+  
+
+  # ── CogVideoX Image-to-Video (GPU service) ─────────────────────────────────
+  # Generates short cinematic motion clips from the real farmer/product images.
+  # Keep this isolated from the Node backend because it requires a dedicated
+  # NVIDIA GPU and a large PyTorch/CogVideoX runtime.
+  cogvideox:
+    build:
+      context: ./docker/cogvideox
+      dockerfile: Dockerfile
+    container_name: santhe-cogvideox
+    restart: unless-stopped
+    runtime: nvidia
+    ports:
+      - "5003:5003"
+    environment:
+      #- MODEL_ID=${COGVIDEOX_MODEL:-zai-org/CogVideoX-5b-I2V}
+      - MODEL_ID=${COGVIDEOX_MODEL:-THUDM/CogVideoX-5b-I2V}
+      - HF_HOME=/models/huggingface
+      - TRANSFORMERS_CACHE=/models/huggingface
+      #- COGVIDEOX_DTYPE=${COGVIDEOX_DTYPE:-bfloat16}
+      - COGVIDEOX_DTYPE=float16
+      - COGVIDEOX_OFFLOAD=sequential
+      #- COGVIDEOX_OFFLOAD=${COGVIDEOX_OFFLOAD:-auto}
+      - COGVIDEOX_DEFAULT_STEPS=${COGVIDEOX_STEPS:-15}
+      - COGVIDEOX_DEFAULT_FRAMES=${COGVIDEOX_NUM_FRAMES:-25}
+      - COGVIDEOX_DEFAULT_GUIDANCE=${COGVIDEOX_GUIDANCE:-6}
+      - COGVIDEOX_DEFAULT_FPS=${COGVIDEOX_FPS:-16}
+      - COGVIDEOX_MAX_CONCURRENT=${COGVIDEOX_MAX_CONCURRENT:-1}
+    volumes:
+      - cogvideox_models:/models
+      - video_jobs:/shared
+    networks:
+      - santhe_network
+    #deploy:
+     # resources:
+      #  reservations:
+      #    devices:
+      #      - driver: nvidia
+      #        count: 1
+      #        capabilities: [gpu]
+    #shm_size: "4gb"
+    gpus: all
+    shm_size: "16gb"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+# ── Persistent volumes ────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  uploads_data:
+    driver: local
+  redis_data:
+    driver: local
+  openinary-db:
+    driver: local
+  openinary-cache:
+    driver: local
+  openinary-public:
+    driver: local
+  piper_models:
+    driver: local
+  nllb_models:
+    driver: local
+  ollama_data:
+    driver: local
+  cogvideox_models:
+    driver: local
+  video_jobs:
+    driver: local
+
+# ── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  santhe_network:
+    driver: bridge

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="200px" height="200px" viewBox="0 0 200 200" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#56ab2f" />
+      <stop offset="100%" stop-color="#a8e063" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Circular background -->
+  <circle cx="100" cy="100" r="95" fill="white" stroke="url(#logoGradient)" stroke-width="5" />
+  
+  <!-- Stylized market tent/stall as primary icon -->
+  <g transform="translate(50, 55)">
+    <!-- Tent/stall structure -->
+    <path d="M0,60 L100,60 L100,90 L0,90 Z" fill="#56ab2f" />
+    <path d="M10,60 L10,30 L90,30 L90,60 Z" fill="#a8e063" />
+    <path d="M0,60 L50,10 L100,60 Z" fill="#2e7d32" />
+    
+    <!-- Pillars/posts -->
+    <rect x="15" y="60" width="4" height="30" fill="#6d4c41" />
+    <rect x="85" y="60" width="4" height="30" fill="#6d4c41" />
+    
+    <!-- Produce display -->
+    <circle cx="30" cy="45" r="8" fill="#ff7043" /> <!-- Orange -->
+    <circle cx="50" cy="45" r="8" fill="#e53935" /> <!-- Red Apple/Tomato -->
+    <circle cx="70" cy="45" r="8" fill="#fdd835" /> <!-- Yellow Lemon -->
+  </g>
+  
+  <!-- Santhe Text - Modern, professional font -->
+  <g transform="translate(100, 140)" text-anchor="middle">
+    <text font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#2e7d32">
+      SANTHE
+    </text>
+    <text font-family="Arial, sans-serif" font-size="12" font-weight="normal" fill="#56ab2f" y="18">
+      FARMERS MARKET
+    </text>
+  </g>
+  
+  <!-- Decorative leaf elements -->
+  <g transform="translate(40, 140)">
+    <path d="M0,0 C5,-5 10,-5 15,0 C10,5 5,5 0,0 Z" fill="#56ab2f" />
+  </g>
+  <g transform="translate(145, 140)">
+    <path d="M15,0 C10,-5 5,-5 0,0 C5,5 10,5 15,0 Z" fill="#56ab2f" />
+  </g>
+</svg>
